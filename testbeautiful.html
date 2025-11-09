@@ -1,0 +1,360 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Wonderful (JS Port)</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            background: #2a2a2a;
+            border: 1px solid #0f0;
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        label {
+            display: inline-block;
+            margin: 5px 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Wonderful (JS Port)</h1>
+    <button id="start">Start</button>
+    <button id="stop">Stop</button>
+
+    <div class="controls">
+        <h3>Layer Toggles:</h3>
+        <label><input type="checkbox" id="toggle-bass" checked> Bass</label>
+        <label><input type="checkbox" id="toggle-lead" checked> Lead</label>
+        <label><input type="checkbox" id="toggle-horn1" checked> Horn 1</label>
+        <label><input type="checkbox" id="toggle-horn2" checked> Horn 2</label>
+        <label><input type="checkbox" id="toggle-horn3" checked> Horn 3</label>
+        <label><input type="checkbox" id="toggle-blade" checked> Blade</label>
+        <label><input type="checkbox" id="toggle-drums" checked> Drums</label>
+    </div>
+
+    <div id="status">Ready</div>
+
+    <script type="module">
+    import { Scale } from "./core/scale.js";
+        import { ToneSystem, InstrumentFactory, Player, Tone } from "./core/tonewrap.js";
+
+    // Scales setup (matching the original)
+    const scales = [
+        new Scale("A", "major"),  // A2
+        new Scale("C", "major"),  // C3
+        new Scale("G", "major"),  // G2
+        new Scale("D", "major"),  // D3
+        new Scale("F", "major"),  // F2
+        new Scale("E", "major")   // E2
+    ];
+
+    const sorder = [0,0,1,1,0,0,1,1, 2,2,3,3, 4,5,4,5];
+
+    // Chance arrays (rhythm patterns)
+    // 0->h (half), 1->q q (quarter quarter), 2->q e e, 3->e e q, 4->e e e e, 5->dq e, 6->e dq, 7->r (rest)
+    const leadchance = [0, 1, 1, 1, 1, 2, 2, 3, 3, 4, 5, 6];
+    const hornchance = [0, 0, 1, 1, 7, 7];
+    const basschance = [0, 1, 5, 6, 1, 0];
+    const leadhorn = [1, 2, 3, 4, 5, 6, 7, 7];
+
+    let loops = [];
+    let instruments = {};
+    let status = document.getElementById("status");
+
+    function updateStatus(msg) {
+        status.textContent = msg;
+    }
+
+    // iir() function - returns interval adjustment
+    function iir() {
+        const val = Math.floor(Math.random() * 5);
+        switch(val) {
+            case 0: return -4;
+            case 1: return -2;
+            case 2: return 0;
+            case 3: return 2;
+            case 4: return 4;
+            default: return 0;
+        }
+    }
+
+    // Choose random element from array
+    function choose(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    // Create playlead loop with sophisticated rhythm patterns
+    function createPlayleadLoop(player, octave, chances) {
+        let sIndex = 0;
+        let bar = 0;
+
+        return new Tone.Loop(time => {
+            const currentScale = scales[sorder[sIndex]];
+            const val = choose(chances);
+
+            // Get chord degrees for major triad: 0, 2, 4
+            const chordDegrees = [0, 2, 4];
+            const baseDegree = chordDegrees[bar % 3];
+
+            switch(val) {
+                case 0: // half note (0.5s)
+                    player.play(currentScale.note(baseDegree, octave), "2n", time, 0.6);
+                    break;
+
+                case 1: // quarter quarter (0.25s each)
+                    player.play(currentScale.note(baseDegree, octave), "4n", time, 0.5);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "4n", time + 0.25, 0.5);
+                    break;
+
+                case 2: // quarter eighth eighth
+                    player.play(currentScale.note(baseDegree, octave), "4n", time, 0.5);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time + 0.25, 0.4);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time + 0.375, 0.4);
+                    break;
+
+                case 3: // eighth eighth quarter
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time, 0.4);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time + 0.125, 0.4);
+                    player.play(currentScale.note(baseDegree, octave), "4n", time + 0.25, 0.5);
+                    break;
+
+                case 4: // eighth eighth eighth eighth
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time, 0.4);
+                    player.play(currentScale.note(baseDegree, octave), "8n", time + 0.125, 0.4);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time + 0.25, 0.4);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time + 0.375, 0.4);
+                    break;
+
+                case 5: // dotted quarter eighth
+                    player.play(currentScale.note(baseDegree, octave), "4n.", time, 0.6);
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time + 0.375, 0.4);
+                    break;
+
+                case 6: // eighth dotted quarter
+                    player.play(currentScale.note(baseDegree + iir(), octave), "8n", time, 0.4);
+                    player.play(currentScale.note(baseDegree, octave), "4n.", time + 0.125, 0.6);
+                    break;
+
+                case 7: // rest
+                    // Do nothing
+                    break;
+            }
+
+            bar++;
+            if (bar >= 4) {
+                bar = 0;
+                sIndex = (sIndex + 1) % sorder.length;
+            }
+        }, "0.5s");
+    }
+
+    // Drum Loop with patterns
+    function createDrumLoop(kick, snare, hihat) {
+        const drumbeats = [
+            [ // Pattern 0
+                { sample: kick, duration: 0.25 },
+                { sample: snare, duration: 0.25 },
+                { sample: kick, duration: 0.25 },
+                { sample: snare, duration: 0.25 }
+            ],
+            [ // Pattern 1
+                { sample: kick, duration: 0.25 },
+                { sample: hihat, duration: 0.125 },
+                { sample: snare, duration: 0.125 },
+                { sample: kick, duration: 0.25 },
+                { sample: snare, duration: 0.25 }
+            ],
+            [ // Pattern 2
+                { sample: snare, duration: 0.25 },
+                { sample: snare, duration: 0.25 },
+                { sample: kick, duration: 0.25 },
+                { sample: snare, duration: 0.25 }
+            ],
+            [ // Pattern 3
+                { sample: snare, duration: 0.25 },
+                { sample: snare, duration: 0.25 },
+                { sample: snare, duration: 0.25 },
+                { sample: snare, duration: 0.25 }
+            ]
+        ];
+
+        const drumpattern = [0,1,0,2, 0,1,0,2, 0,1,0,2, 0,1,0,3];
+
+        let patternIndex = 0;
+        let beatIndex = 0;
+
+        return new Tone.Loop(time => {
+            const currentPattern = drumbeats[drumpattern[patternIndex]];
+            const beat = currentPattern[beatIndex];
+
+            beat.sample.triggerAttackRelease("8n", time, 0.7);
+
+            beatIndex++;
+            if (beatIndex >= currentPattern.length) {
+                beatIndex = 0;
+                patternIndex = (patternIndex + 1) % drumpattern.length;
+            }
+        }, "0.25s");
+    }
+
+    async function start() {
+        updateStatus("Initializing...");
+        await ToneSystem.init(60);  // 60 BPM
+
+        // Create instruments with different characteristics
+
+        // Bass - chipbass with reverb
+        const bass = new Player(InstrumentFactory.create("mono", {
+            oscillator: { type: "square" },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.4 }
+        }));
+        instruments.bass = bass;
+
+        // Lead - chiplead with wobble
+        const lead = new Player(InstrumentFactory.create("fm", {
+            harmonicity: 3,
+            modulationIndex: 12,
+            envelope: { attack: 0.005, decay: 0.2, sustain: 0.3, release: 0.3 }
+        }));
+        instruments.lead = lead;
+
+        // Horn 1 - saw wave
+        const horn1 = new Player(InstrumentFactory.create("mono", {
+            oscillator: { type: "sawtooth" },
+            envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.4 }
+        }));
+        instruments.horn1 = horn1;
+
+        // Horn 2 - dual saw (higher octave)
+        const horn2 = new Player(InstrumentFactory.create("fm", {
+            harmonicity: 2,
+            modulationIndex: 8,
+            envelope: { attack: 0.02, decay: 0.3, sustain: 0.3, release: 0.4 }
+        }));
+        instruments.horn2 = horn2;
+
+        // Horn 3 - dual saw (highest octave)
+        const horn3 = new Player(InstrumentFactory.create("fm", {
+            harmonicity: 1.5,
+            modulationIndex: 6,
+            envelope: { attack: 0.02, decay: 0.3, sustain: 0.3, release: 0.4 }
+        }));
+        instruments.horn3 = horn3;
+
+        // Blade - bright FM with flanger effect
+        const blade = new Player(InstrumentFactory.create("fm", {
+            harmonicity: 4,
+            modulationIndex: 15,
+            envelope: { attack: 0.002, decay: 0.15, sustain: 0.2, release: 0.3 }
+        }));
+        instruments.blade = blade;
+
+        // Drums
+        const kick = new Tone.MembraneSynth({
+            pitchDecay: 0.05,
+            octaves: 5,
+            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 }
+        }).connect(ToneSystem.masterBus);
+
+        const snare = new Tone.NoiseSynth({
+            noise: { type: "white" },
+            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+        }).connect(ToneSystem.masterBus);
+
+        const hihat = new Tone.MetalSynth({
+            frequency: 200,
+            envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
+            harmonicity: 5.1,
+            modulationIndex: 32,
+            resonance: 4000,
+            octaves: 1.5
+        }).connect(ToneSystem.masterBus);
+
+        // Create all loops
+        const bassLoop = createPlayleadLoop(bass, 2, basschance);
+        const leadLoop = createPlayleadLoop(lead, 3, leadchance);
+        const horn1Loop = createPlayleadLoop(horn1, 2, hornchance);
+        const horn2Loop = createPlayleadLoop(horn2, 3, leadhorn);
+        const horn3Loop = createPlayleadLoop(horn3, 4, hornchance);
+        const bladeLoop = createPlayleadLoop(blade, 2, leadchance);
+        const drumLoop = createDrumLoop(kick, snare, hihat);
+
+        loops = [
+            { name: 'bass', loop: bassLoop },
+            { name: 'lead', loop: leadLoop },
+            { name: 'horn1', loop: horn1Loop },
+            { name: 'horn2', loop: horn2Loop },
+            { name: 'horn3', loop: horn3Loop },
+            { name: 'blade', loop: bladeLoop },
+            { name: 'drums', loop: drumLoop }
+        ];
+
+        // Start enabled loops
+        loops.forEach(l => {
+            const checkbox = document.getElementById(`toggle-${l.name}`);
+            if (checkbox && checkbox.checked) {
+                l.loop.start("0m");
+            }
+        });
+
+        // Setup toggle handlers
+        loops.forEach(l => {
+            const checkbox = document.getElementById(`toggle-${l.name}`);
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        l.loop.start();
+                    } else {
+                        l.loop.stop();
+                    }
+                });
+            }
+        });
+
+        await ToneSystem.start();
+        updateStatus("Playing! 🎵 (Use checkboxes to toggle layers)");
+    }
+
+    async function stop() {
+        loops.forEach(l => l.loop.stop());
+        loops = [];
+        instruments = {};
+        ToneSystem.stop();
+        updateStatus("Stopped");
+    }
+
+    document.getElementById("start").addEventListener("click", async () => {
+        try {
+            await start();
+        } catch (e) {
+            updateStatus("Error: " + e.message);
+            console.error(e);
+        }
+    });
+
+    document.getElementById("stop").onclick = () => {
+        stop();
+    };
+    </script>
+</body>
+</html>
