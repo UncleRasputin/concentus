@@ -1,0 +1,210 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>8bit Redneck Recreation</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            background: #2a2a2a;
+            border: 1px solid #0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>8bit Redneck (JS Port)</h1>
+    <button id="start">Start</button>
+    <button id="stop">Stop</button>
+    <div id="status">Ready</div>
+
+    <script type="module">
+    import { Scale } from "./core/scale.js";
+    import { ToneSystem, InstrumentFactory, Player, Tone } from "./core/tonewrap.js";
+
+    // Match original Sonic Pi setup
+    const scales = {
+        high: [
+            new Scale("G", "major"),  // G2 equivalent
+            new Scale("C", "major"),  // C3 equivalent
+            new Scale("D", "major")   // D3 equivalent
+        ],
+        bass: [
+            new Scale("G", "majorPentatonic"),  // G1 equivalent
+            new Scale("C", "majorPentatonic"),  // C2 equivalent
+            new Scale("D", "majorPentatonic")   // D2 equivalent
+        ]
+    };
+
+    const sorder = [0, 0, 1, 0, 2, 1];  // Chord progression pattern
+    const norder = [0, 1, 2, 3, 4, 3, 2, 1];  // Bass note pattern
+
+    let loops = [];
+    let status = document.getElementById("status");
+
+    function updateStatus(msg) {
+        status.textContent = msg;
+    }
+
+    // Bass Loop (matches :a2)
+    function createBassLoop(player) {
+        let sIndex = 0;
+        let nIndex = 0;
+
+        return new Tone.Loop(time => {
+            const currentScale = scales.bass[sorder[sIndex]];
+            const note = currentScale.note(norder[nIndex], 2); // octave 2 for bass
+
+            player.play(note, "8n", time, 0.7);
+
+            nIndex++;
+            if (nIndex >= norder.length) {
+                nIndex = 0;
+                sIndex = (sIndex + 1) % sorder.length;
+            }
+        }, "0.5s");  // 0.5 second intervals (matches sleep 0.5)
+    }
+
+    // Lead Loop (matches :a1 with random variations)
+    function createLeadLoop(player) {
+        let sIndex = 0;
+        let beatCount = 0;
+
+        return new Tone.Loop(time => {
+            const currentScale = scales.high[sorder[sIndex]];
+
+            // Get chord notes for this scale (major triad: 0, 2, 4)
+            const chordDegrees = [0, 2, 4];
+            const val = Math.floor(Math.random() * 4);  // rrand_i(0,3)
+
+            const jPos = beatCount % 8;  // Matches the j index in 8.times
+
+            if (val === 0) {
+                // Simple quarter note
+                const note = currentScale.note(chordDegrees[jPos % 3], 4);
+                player.play(note, "4n", time, 0.5);
+            }
+            else if (val === 1) {
+                // Two eighth notes (lower then higher)
+                const note1 = currentScale.note(chordDegrees[Math.max(0, (jPos % 3) - 2)], 4);
+                const note2 = currentScale.note(chordDegrees[jPos % 3], 4);
+                player.play(note1, "8n", time, 0.4);
+                player.play(note2, "8n", time + 0.125, 0.4);
+            }
+            else if (val === 2) {
+                // Two eighth notes (even lower then mid)
+                const note1 = currentScale.note(chordDegrees[Math.max(0, (jPos % 3) - 4)], 4);
+                const note2 = currentScale.note(chordDegrees[Math.max(0, (jPos % 3) - 2)], 4);
+                player.play(note1, "8n", time, 0.4);
+                player.play(note2, "8n", time + 0.125, 0.4);
+            }
+            else if (val === 3) {
+                // Higher note
+                const note = currentScale.note(chordDegrees[Math.min(2, (jPos % 3) + 2)], 4);
+                player.play(note, "4n", time, 0.5);
+            }
+
+            beatCount++;
+            if (beatCount >= 8) {
+                beatCount = 0;
+                sIndex = (sIndex + 1) % sorder.length;
+            }
+        }, "0.25s");  // Quarter note timing
+    }
+
+    // Drum Loop
+    function createDrumLoop(kick, snare) {
+        let beatIndex = 0;
+        const pattern = [
+            { sample: kick, duration: 0.25 },
+            { sample: snare, duration: 0.25 },
+            { sample: kick, duration: 0.25 },
+            { sample: snare, duration: 0.25 }
+        ];
+
+        return new Tone.Loop(time => {
+            const beat = pattern[beatIndex];
+            beat.sample.triggerAttackRelease("8n", time, 0.8);
+            beatIndex = (beatIndex + 1) % pattern.length;
+        }, "0.25s");
+    }
+
+    async function start() {
+        updateStatus("Initializing...");
+        await ToneSystem.init(80);  // 80 BPM from original
+
+        // Create instruments
+        const synthBass = new Player(InstrumentFactory.create("mono", {
+            oscillator: { type: "square" },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.25 }
+        }));
+
+        const synthLead = new Player(InstrumentFactory.create("fm", {
+            harmonicity: 3,
+            modulationIndex: 10,
+            envelope: { attack: 0.01, decay: 0.2, sustain: 0.2, release: 0.25 }
+        }));
+
+        // Simple drum sounds
+        const kick = new Tone.MembraneSynth({
+            pitchDecay: 0.05,
+            octaves: 4,
+            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 }
+        }).connect(ToneSystem.masterBus);
+
+        const snare = new Tone.NoiseSynth({
+            noise: { type: "white" },
+            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+        }).connect(ToneSystem.masterBus);
+
+        // Create loops
+        const bassLoop = createBassLoop(synthBass);
+        const leadLoop = createLeadLoop(synthLead);
+        const drumLoop = createDrumLoop(kick, snare);
+
+        loops = [bassLoop, leadLoop, drumLoop];
+
+        // Start all loops
+        loops.forEach(l => l.start("0m"));
+
+        await ToneSystem.start();
+        updateStatus("Playing! 🎵");
+    }
+
+    async function stop() {
+        loops.forEach(l => l.stop());
+        loops = [];
+        ToneSystem.stop();
+        updateStatus("Stopped");
+    }
+
+    document.getElementById("start").addEventListener("click", async () => {
+        try {
+            await start();
+        } catch (e) {
+            updateStatus("Error: " + e.message);
+            console.error(e);
+        }
+    });
+
+    document.getElementById("stop").onclick = () => {
+        stop();
+    };
+    </script>
+</body>
+</html>
